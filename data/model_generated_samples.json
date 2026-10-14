@@ -1,0 +1,14 @@
+[
+ {
+  "instruction": "Agarwal Plastics paid us Rs 1,000 on 14/12/2025, deposited in SBI Bank. Make the receipt voucher.",
+  "model_output": "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER><BODY><DESC></DESC><DATA><TALLYMESSAGE><VOUCHER VCHTYPE=\"Receipt\" ACTION=\"Create\" OBJVIEW=\"Accounting Voucher View\"><DATE>20251214</DATE><VOUCHERTYPENAME>Receipt</VOUCHERTYPENAME><ALLLEDGERENTRIES.LIST><LEDGERNAME>SBI Bank</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-1000</AMOUNT></ALLLEDGERENTRIES.LIST><ALLLEDGERENTRIES.LIST><LEDGERNAME>Agarwal Plastics</LEDGERNAME><ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><AMOUNT>1000</AMOUNT></ALLLEDGERENTRIES.LIST></VOUCHER></TALLYMESSAGE></DATA></BODY></ENVELOPE>",
+  "fields_check": 1,
+  "provenance": "Phase 2 executed notebook cell 3 output (res_ft.json, now missing). One of only two surviving fine-tuned model-generated samples; NOT a gold test answer."
+ },
+ {
+  "instruction": "Journal entry on 11/08/2026: debit Depreciation and credit Computers for Rs. 3,000.",
+  "model_output": "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER><BODY><DESC></DESC><DATA><TALLYMESSAGE><VOUCHER VCHTYPE=\"Journal\" ACTION=\"Create\" OBJVIEW=\"Accounting Voucher View\"><DATE>20260811</DATE><VOUCHERTYPENAME>Journal</VOUCHERTYPENAME><ALLLEDGERENTRIES.LIST><LEDGERNAME>Depreciation</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-3000</AMOUNT></ALLLEDGERENTRIES.LIST><ALLLEDGERENTRIES.LIST><LEDGERNAME>Computers</LEDGERNAME><ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><AMOUNT>3000</AMOUNT></ALLLEDGERENTRIES.LIST></VOUCHER></TALLYMESSAGE></DATA></BODY></ENVELOPE>",
+  "fields_check": 1,
+  "provenance": "Phase 2 executed notebook cell 3 output (res_ft.json, now missing). One of only two surviving fine-tuned model-generated samples; NOT a gold test answer."
+ }
+]
