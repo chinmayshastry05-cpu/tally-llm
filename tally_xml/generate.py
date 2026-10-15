@@ -16,6 +16,7 @@ Status honesty rules (do not weaken them):
 - ``generation_enabled`` stays False until model inference is actually
   implemented and verified. Restoring adapter files alone never enables it.
 """
+import json
 import os
 
 ADAPTER_DIR = os.environ.get("TALLY_ADAPTER_DIR", os.path.join("models", "adapter"))
@@ -32,38 +33,62 @@ class AdapterMissingError(RuntimeError):
     """Raised when generation is requested without a trained adapter."""
 
 
-def config_present():
-    """True if adapter_config.json exists under the adapter dir."""
-    return os.path.exists(os.path.join(ADAPTER_DIR, CONFIG_FILE))
+def config_present(adapter_dir=None):
+    """True if adapter_config.json exists under the adapter dir.
+
+    ``adapter_dir`` overrides the default ADAPTER_DIR — every caller
+    that accepts an override must pass it through, never silently
+    fall back to the global dir for the check.
+    """
+    d = adapter_dir or ADAPTER_DIR
+    return os.path.exists(os.path.join(d, CONFIG_FILE))
 
 
-def weights_present():
+def weights_present(adapter_dir=None):
     """True if real (non-empty) adapter weights exist under the adapter dir."""
-    p = os.path.join(ADAPTER_DIR, WEIGHTS_FILE)
+    d = adapter_dir or ADAPTER_DIR
+    p = os.path.join(d, WEIGHTS_FILE)
     return os.path.exists(p) and os.path.getsize(p) > 0
 
 
-def find_adapter():
+def find_adapter(adapter_dir=None):
     """Return the adapter directory if a complete adapter is present, else None.
 
     Complete = adapter_config.json AND non-empty adapter_model.safetensors.
-    A config-only directory is not an adapter.
+    A config-only directory is not an adapter. ``adapter_dir`` overrides
+    the default; when given, ONLY that directory is checked.
     """
-    if config_present() and weights_present():
-        return ADAPTER_DIR
+    d = adapter_dir or ADAPTER_DIR
+    if config_present(d) and weights_present(d):
+        return d
     return None
 
 
-def adapter_status():
+def read_adapter_config(adapter_dir=None):
+    """Read adapter_config.json. Returns (config_dict, error|None)."""
+    d = adapter_dir or ADAPTER_DIR
+    path = os.path.join(d, CONFIG_FILE)
+    try:
+        with open(path) as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        return None, f"cannot read adapter config {path}: {e}"
+    if not isinstance(cfg, dict):
+        return None, "adapter_config.json must be a JSON object"
+    return cfg, None
+
+
+def adapter_status(adapter_dir=None):
     """Machine-readable status for the GUI status panel.
 
     ``generation_enabled`` is False until inference is actually implemented
     and verified. The three states are distinct: missing adapter, config-only
     (weights missing), and complete adapter with unwired inference.
     """
-    cfg = config_present()
-    wts = weights_present()
-    found = find_adapter()
+    d = adapter_dir or ADAPTER_DIR
+    cfg = config_present(d)
+    wts = weights_present(d)
+    found = find_adapter(d)
     if found is not None and not INFERENCE_WIRED:
         message = (
             "Adapter files found (adapter_config.json + adapter_model.safetensors), "
@@ -94,7 +119,7 @@ def adapter_status():
         "weights_present": wts,
         "adapter_present": found is not None,
         "inference_wired": INFERENCE_WIRED,
-        "adapter_dir": os.path.abspath(ADAPTER_DIR),
+        "adapter_dir": os.path.abspath(d),
         "generation_enabled": found is not None and INFERENCE_WIRED,
         "message": message,
     }

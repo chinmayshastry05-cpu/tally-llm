@@ -4,8 +4,12 @@ Run:  python3 -m tally_xml.gui [--port 7860]
 Then open http://127.0.0.1:7860
 
 Tabs:
-  Validate — paste TallyPrime XML, see the four structural checks.
-  Samples  — the two surviving fine-tuned model-generated XML samples.
+  Validate — paste TallyPrime XML + caller-supplied known ledgers; the
+             STRICT prototype acceptance gate is the acceptance verdict.
+             Legacy structural checks are shown as research only.
+  Samples  — the two surviving fine-tuned model-generated XML samples,
+             each strict-gated against its documented fixture ledger
+             context. Download is gated on the strict verdict.
   Generate — DISABLED (fail-closed). Generation stays disabled even with
              adapter files present: inference is not wired into this build.
              Nothing here produces template XML and calls it model output.
@@ -14,24 +18,57 @@ No data leaves this machine; there is no automatic import into live Tally
 company books. Anything you paste is validated locally and never uploaded.
 """
 import argparse
-import html
 import json
 import os
+import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 from .generate import adapter_status, generate_voucher, AdapterMissingError
+from .strict import validate_strict
 from .validate import check
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+
+# Label for legacy structural checks: research only, never the verdict.
+LEGACY_LABEL = "research only — never the acceptance verdict or download gate"
+
+
+def sample_fixture_ledgers(sample):
+    """Ledger names in this sample's XML — its fixture ledger context.
+
+    NOT real company masters. The sample is self-contained; its own
+    LEDGERNAMEs are the explicitly documented fixture context the strict
+    gate checks against. Returns a set (possibly empty).
+    """
+    try:
+        root = ET.fromstring(sample["model_output"])
+    except ET.ParseError:
+        return set()
+    return {el.text.strip() for el in root.iter("LEDGERNAME") if el.text and el.text.strip()}
+
+
+def sample_strict_result(sample):
+    """Strict gate for a sample against its fixture ledger context.
+
+    Returns {"ok", "errors", "fixture_ledgers"}. This is the acceptance
+    verdict AND the download gate for the sample.
+    """
+    ledgers = sample_fixture_ledgers(sample)
+    ok, errors = validate_strict(sample["model_output"], ledgers)
+    return {"ok": ok, "errors": errors, "fixture_ledgers": sorted(ledgers)}
 
 
 def load_samples():
     with open(os.path.join(ROOT, "data", "model_generated_samples.json")) as f:
         samples = json.load(f)
     for s in samples:
-        s["validation"] = check(s["model_output"])
+        s["validation"] = check(s["model_output"])  # legacy, research only
+        s["strict"] = sample_strict_result(s)
+        s["fixture_context"] = (
+            "fixture context (ledgers named in this sample), NOT real company masters"
+        )
     return samples
 
 
@@ -68,7 +105,10 @@ a{color:var(--blue)}
 <button data-tab="samples">Model samples</button>
 <button data-tab="generate">Generate (disabled)</button></div>
 <div id="tab-validate" class="card">
-<p>Paste a TallyPrime <code>&lt;ENVELOPE&gt;</code> import message. It is checked locally against a structural subset of the Tally schema (well-formed XML, expected envelope/voucher shape, balanced debits/credits, field consistency) — this is <strong>not</strong> a complete Tally schema validator.</p>
+<p>Paste a TallyPrime <code>&lt;ENVELOPE&gt;</code> import message. <strong>Acceptance verdict: the strict prototype acceptance gate</strong> (real calendar dates, Decimal money, caller-supplied known ledgers, balance, no ignored content) — this is <strong>not</strong> a complete Tally schema validator and not production-safe. The four legacy structural checks below are research only and never the acceptance verdict.</p>
+<label>Known ledgers (comma-separated, required for the strict gate)</label>
+<input type="text" id="ledgers" placeholder="City Bank, Acme Traders">
+<br><br>
 <textarea id="xml" rows="12" placeholder="&lt;ENVELOPE&gt;...&lt;/ENVELOPE&gt;"></textarea><br><br>
 <button class="primary" onclick="validate()">Validate</button>
 <div id="vout"></div></div>
@@ -98,17 +138,22 @@ async function loadStatus(){const r=await fetch('/api/status');const s=await r.j
   el.className='banner '+cls;
   el.innerHTML='<strong>'+head+'</strong><br>'+s.message;}
 async function validate(){const xml=$('xml').value;
+  const ledgers=$('ledgers').value.split(',').map(s=>s.trim()).filter(Boolean);
   let v;
   try{
-    const r=await fetch('/api/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({xml})});
+    const r=await fetch('/api/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({xml,known_ledgers:ledgers})});
     v=await r.json();
   }catch(e){ $('vout').innerHTML='<div class="error">Could not reach the validator: '+e.message+'</div>'; return; }
   if(v.error){ $('vout').innerHTML='<div class="error">'+v.error+'</div>'; return; }
-  const chip=(k)=>'<div><div class="v '+(v[k]?'ok':'bad')+'">'+(v[k]?'&#10003;':'&#10007;')+'</div>'+k+'</div>';
-  $('vout').innerHTML='<div class="checks">'+['wellformed','schema','balanced','fields'].map(chip).join('')+'</div>'
+  const strictHtml='<div class="banner '+(v.strict_ok?'good':'bad')+'"><strong>Strict acceptance gate: '+(v.strict_ok?'PASS':'FAIL')+'</strong><br>'+(v.strict_ok?'Accepted by the strict prototype acceptance gate.':('Errors:<br>'+v.strict_errors.map(e=>e.replace(/</g,'&lt;')).join('<br>')))+'</div>';
+  const chip=(k)=>'<div><div class="v '+(v.legacy[k]?'ok':'bad')+'">'+(v.legacy[k]?'&#10003;':'&#10007;')+'</div>'+k+'</div>';
+  $('vout').innerHTML=strictHtml+'<p class="muted">Legacy structural checks ('+v.legacy_label+'):</p><div class="checks">'+['wellformed','schema','balanced','fields'].map(chip).join('')+'</div>'
     +(xml.trim()==='' ? '<div class="error">Paste an ENVELOPE XML message first.</div>':'');}
 async function loadSamples(){const r=await fetch('/api/samples');const s=await r.json();
-  $('sout').innerHTML=s.map((x,i)=>'<div class="sample"><p><strong>Sample '+(i+1)+'</strong> — '+x.instruction+'</p><pre>'+x.model_output.replace(/</g,'&lt;')+'</pre><p class="muted">Validation: wellformed '+x.validation.wellformed+', schema '+x.validation.schema+', balanced '+x.validation.balanced+', fields '+x.validation.fields+' &middot; <a href="/api/download/sample?n='+i+'">Download XML</a></p></div>').join('');}
+  $('sout').innerHTML=s.map((x,i)=>'<div class="sample"><p><strong>Sample '+(i+1)+'</strong> — '+x.instruction+'</p><pre>'+x.model_output.replace(/</g,'&lt;')+'</pre>'
+    +'<div class="banner '+(x.strict.ok?'good':'bad')+'"><strong>Strict acceptance gate: '+(x.strict.ok?'PASS':'FAIL')+'</strong><br>Fixture context: '+x.fixture_context+' — ledgers: '+x.strict.fixture_ledgers.join(', ')+(x.strict.ok?'':'<br>Errors: '+x.strict.errors.map(e=>e.replace(/</g,'&lt;')).join('<br>'))+'</div>'
+    +'<p class="muted">Legacy validation (research only): wellformed '+x.validation.wellformed+', schema '+x.validation.schema+', balanced '+x.validation.balanced+', fields '+x.validation.fields
+    +(x.strict.ok?' &middot; <a href="/api/download/sample?n='+i+'">Download XML</a>':' &middot; Download refused — strict gate failed')+'</p></div>').join('');}
 async function generate(){const r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:$('desc').value})});
   const j=await r.json(); $('gout').innerHTML='<div class="error" style="margin-top:12px">'+j.error+'</div>';}
 loadStatus();
@@ -162,6 +207,14 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, IndexError):
                 self._send(404, json.dumps({"error": "sample not found"}))
                 return
+            # Download gate: the STRICT verdict, never the legacy checks.
+            strict = sample_strict_result(s)
+            if not strict["ok"]:
+                self._send(403, json.dumps({
+                    "error": "sample fails the strict acceptance gate; download refused",
+                    "strict_errors": strict["errors"],
+                }))
+                return
             data = s["model_output"].encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/xml")
@@ -181,7 +234,28 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(xml, str) or not xml.strip():
                 self._send(400, json.dumps({"error": "Paste an ENVELOPE XML message first."}))
                 return
-            self._send(200, json.dumps(check(xml)))
+            # Known ledgers: caller-supplied list of strings. Absent/empty
+            # -> None -> the strict gate fails closed (no invented list).
+            raw_ledgers = body.get("known_ledgers", None)
+            if raw_ledgers is None:
+                known = None
+            elif isinstance(raw_ledgers, list):
+                if not all(isinstance(x, str) for x in raw_ledgers):
+                    self._send(400, json.dumps({"error": "known_ledgers must be a list of strings."}))
+                    return
+                known = {x.strip() for x in raw_ledgers if x.strip()} or None
+            else:
+                self._send(400, json.dumps({"error": "known_ledgers must be a list of strings."}))
+                return
+            # Acceptance verdict: STRICT gate. Legacy checks are research only.
+            strict_ok, strict_errors = validate_strict(xml, known)
+            self._send(200, json.dumps({
+                "strict_ok": strict_ok,
+                "strict_errors": strict_errors,
+                "legacy": check(xml),
+                "legacy_label": LEGACY_LABEL,
+                "acceptance": "strict prototype acceptance gate (validate_strict) with caller-supplied known ledgers",
+            }))
         elif self.path == "/api/generate":
             body = self._body_or_400()
             if body is None:

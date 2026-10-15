@@ -25,9 +25,9 @@ NL inference is NOT wired to a working model and has NOT run — see
 | `data/xml_train.json` | Phase 2 training: 700 synthetic instruction→XML pairs |
 | `data/xml_test.json` | Phase 2 test: 60 synthetic pairs with gold records |
 | `data/model_generated_samples.json` | The only 2 surviving fine-tuned model-generated XML samples |
-| `tally_xml/validate.py` | Structural validator (subset — NOT a complete Tally schema validator): wellformed / schema / balanced / fields. Has a known hole (accepts impossible dates like 20261399) — see `strict.py` for the production gate. |
-| `tally_xml/strict.py` | STRICT production validator + JSON intent validation: real calendar dates, Decimal money, caller-provided known ledgers, voucher-type allowlist, fail-closed. |
-| `tally_xml/pipeline.py` | Deterministic JSON-intent → XML builder (ET-escaped) + strict round-trip gate. The LLM never does arithmetic or free-form XML here. |
+| `tally_xml/validate.py` | Structural validator (subset — NOT a complete Tally schema validator): wellformed / schema / balanced / fields. Has a known hole (accepts impossible dates like 20261399) — research only, never the acceptance verdict. See `strict.py` for the prototype acceptance gate. |
+| `tally_xml/strict.py` | STRICT prototype acceptance validator + JSON intent validation: real calendar dates, Decimal money, caller-provided known ledgers, voucher-type allowlist, fail-closed. NOT production-safe. |
+| `tally_xml/pipeline.py` | Deterministic JSON-intent → XML builder (ET-escaped) + strict round-trip gate. The LLM never does arithmetic or free-form XML here. Prototype acceptance path, NOT production-safe. |
 | `tally_xml/inference.py` | Adapter inference wiring (fail-closed, UNVERIFIED): adapter/deps/tokenizer checks + JSON-intent parsing. Fails closed today (no adapter, no ML deps). |
 | `tally_xml/gui.py` | Local GUI (stdlib only): validate, samples, fail-closed generate |
 | `tally_xml/generate.py` | Generation entry point — refuses without a trained adapter |
@@ -44,6 +44,13 @@ NL inference is NOT wired to a working model and has NOT run — see
   `results/phase2_synthetic_eval.md`.
 - **XML is structure-validated only**, never imported into a real Tally
   company. **NOT TESTED IN LIVE TALLY.**
+- **The strict gate is a prototype acceptance gate, NOT production-safe.**
+  It checks structure, dates, money, balance, and ledger presence. It
+  does NOT verify accounting semantics: Receipt/Payment semantics need
+  actual ledger-role metadata (which ledger is a bank/cash account vs a
+  customer/supplier), not just ledger names. A balanced transaction with
+  wrong ledger roles is NOT safe. Neither accounting semantics nor Tally
+  import is verified.
 - **Missing artifacts:** the Phase 2 LoRA adapter, the full fine-tuned
   outputs (`res_ft.json`), and the Phase 1 merged model were saved only to
   volatile Colab/Drive locations and are **not shipped**. The two samples in
@@ -68,8 +75,9 @@ python3 -m tally_xml.gui
 # Tests
 python3 -m unittest discover -s tests -v
 
-# Validate an XML file from the shell
-python3 -c "import sys,json; from tally_xml.validate import check; print(check(open(sys.argv[1]).read()))" sample.xml
+# Validate an XML file from the shell (strict prototype acceptance gate;
+# known ledgers are caller-supplied — the validator invents none)
+python3 -c "import sys; from tally_xml.strict import validate_strict; print(validate_strict(open(sys.argv[1]).read(), {'City Bank', 'Acme Traders'}))" sample.xml
 ```
 
 ## Adapter / JSON mismatch (read before trusting any "JSON" claim)
@@ -82,26 +90,34 @@ JSON capability — the adapter's weights are tuned for XML. Prompting it
 for JSON may yield XML, malformed JSON, or JSON with wrong values.
 
 Architecture:
-- **Production path** (this branch): JSON intent ONLY → deterministic
-  validation → deterministic XML builder. Currently DISABLED for
-  model-backed use: no JSON-capable adapter exists. Fixture intents test
-  the deterministic code; fixture mocks are NOT a model test.
+- **Prototype acceptance path** (this branch): JSON intent ONLY →
+  deterministic validation → deterministic XML builder. Currently
+  DISABLED for model-backed use: no JSON-capable adapter exists. Fixture
+  intents test the deterministic code; fixture mocks are NOT a model test.
 - **Legacy/research path:** XML-emitting adapter → strict validator
   (`tally_xml.strict.validate_strict`). Also DISABLED (no adapter,
   inference unwired). If a retrained adapter appears, evaluate it as
-  research only — never as the production path.
+  research only — never as the prototype acceptance path.
 
 ## Safe pipeline (branch `tally-safe-pipeline`)
 
-Deterministic receipt/payment/journal flows with fixture intents:
+Deterministic receipt/payment/journal flows with fixture intents.
+Prototype acceptance gate — NOT production-safe (see caveats above).
 
 ```bash
 python3 -m unittest discover -s tests -v
-# 87 tests, incl. 62 fresh strict/pipeline tests (invalid dates, missing
+# 127 tests, incl. 62 strict/pipeline tests (invalid dates, missing
 # fields, unknown ledgers, malformed model output, bad money, unbalanced
-# journals, escaping/injection-like ledger text). Developer-written, not
-# accountant-reviewed, not production proof.
+# journals, escaping/injection-like ledger text) + 40 review-fix tests
+# (adversarial strict cases, GUI strict gate, inference wiring with mocks).
+# Developer-written, not accountant-reviewed, not production proof.
 ```
+
+GUI: Validate and Samples use the strict gate with caller-supplied known
+ledgers (Validate tab has a known-ledgers input; Samples use their
+documented fixture ledger context). Legacy structural checks are shown as
+research only, never the acceptance verdict or download gate. Sample
+download is gated on the strict verdict.
 
 See `results/safe_pipeline_demo.md` for the demo (3 flows pass pipeline +
 strict round-trip; adapter-backed inference did NOT run).

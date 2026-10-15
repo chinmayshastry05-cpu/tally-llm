@@ -1,8 +1,8 @@
-"""Strict validator for TallyPrime XML import messages (production gate).
+"""Strict validator for TallyPrime XML import messages (prototype acceptance gate).
 
-This is the production gate for the narrow receipt/payment/journal
-pipeline. It is STRICTER than :func:`tally_xml.validate.check` (the
-structural subset validator used by the GUI/samples):
+This is the PROTOTYPE ACCEPTANCE gate for the narrow receipt/payment/
+journal pipeline — NOT production-safe. It is STRICTER than
+:func:`tally_xml.validate.check` (the structural subset validator):
 
 - Real calendar dates (``datetime.date``), not an 8-digit regex. 20261399,
   20250230, 20250229 (non-leap), 00000000 are all rejected.
@@ -19,6 +19,18 @@ structural subset validator used by the GUI/samples):
   messages; ``None`` fails closed. No ledger list is invented here.
 - Other impossible values: year outside 1900-2100, empty/whitespace-only
   names, missing ACTION, sign/ISDEEMEDPOSITIVE mismatch.
+- Structural exactness: exactly one ENVELOPE with no surrounding prose or
+  trailing text, exactly one TALLYMESSAGE, exactly one VOUCHER or LEDGER
+  (never both, never multiples), no duplicate required nodes, no unknown
+  payload fields/attributes. Nothing is silently ignored — a checked
+  first voucher with unchecked later content is REJECTED.
+
+What this gate does NOT verify: accounting semantics, or Tally import.
+Receipt/Payment semantics need actual ledger-role metadata (which ledger
+is a bank/cash account vs a customer/supplier), not just ledger names.
+A balanced transaction with wrong ledger roles is NOT safe — this gate
+checks structure, dates, money, balance, and ledger presence only.
+Nothing here is production proof.
 
 Returns ``(ok, errors)`` where ``errors`` is a list of human-readable
 strings. Never raises for invalid input — invalid input returns
@@ -131,10 +143,19 @@ def validate_strict(xml_text, known_ledgers=None, allowed_voucher_types=None):
     if not isinstance(xml_text, str) or not xml_text.strip():
         return False, ["input is empty or not a string"]
     text = xml_text.strip()
-    # Isolate the ENVELOPE block (same convention as validate.check).
-    m = re.search(r"<ENVELOPE>.*</ENVELOPE>", text, re.S)
-    if m:
-        text = m.group(0)
+    # Strict envelope framing: NO surrounding prose/trailing text is
+    # stripped. The input must be exactly one ENVELOPE element (an
+    # optional XML declaration is the only allowed prefix). Multiple
+    # envelopes fail here or at ET parse ("junk after document element").
+    if text.startswith("<?xml"):
+        decl_end = text.find("?>")
+        if decl_end == -1:
+            return False, ["XML declaration is not terminated"]
+        text = text[decl_end + 2:].strip()
+    if not re.match(r"<ENVELOPE(\s[^>]*)?>", text):
+        return False, ["input must start with exactly one <ENVELOPE> element (no surrounding prose/text)"]
+    if not text.endswith("</ENVELOPE>"):
+        return False, ["input must end with </ENVELOPE> (no trailing prose/text)"]
     try:
         root = ET.fromstring(text)
     except ET.ParseError as e:
@@ -146,35 +167,97 @@ def validate_strict(xml_text, known_ledgers=None, allowed_voucher_types=None):
     if root.tag != "ENVELOPE":
         errors.append("root element must be ENVELOPE")
         return False, errors
+    # ENVELOPE: exactly one HEADER + one BODY, nothing else.
+    _check_children_exact(root, {"HEADER", "BODY"}, "ENVELOPE", errors, required={"HEADER", "BODY"})
+    if errors:
+        return False, errors
+    header = root.find("HEADER")
+    _check_children_exact(header, {"VERSION", "TALLYREQUEST", "TYPE", "ID"}, "HEADER", errors,
+                          required={"TALLYREQUEST", "TYPE", "ID"})
+    if errors:
+        return False, errors
     if g("HEADER/TALLYREQUEST") != "Import":
         errors.append("HEADER/TALLYREQUEST must be 'Import'")
     if g("HEADER/TYPE") != "Data":
         errors.append("HEADER/TYPE must be 'Data'")
-    tm = root.find("BODY/DATA/TALLYMESSAGE")
-    if tm is None:
-        errors.append("BODY/DATA/TALLYMESSAGE is missing")
+    if errors:
+        return False, errors
+    body = root.find("BODY")
+    _check_children_exact(body, {"DESC", "DATA"}, "BODY", errors, required={"DATA"})
+    if errors:
+        return False, errors
+    data = body.find("DATA")
+    _check_children_exact(data, {"TALLYMESSAGE"}, "BODY/DATA", errors, required={"TALLYMESSAGE"})
+    if errors:
+        return False, errors
+    tm = data.find("TALLYMESSAGE")
+    # TALLYMESSAGE: exactly one of VOUCHER or LEDGER — never both,
+    # never multiples, nothing else.
+    tm_children = [child.tag for child in tm]
+    unknown_tm = sorted(set(tm_children) - {"VOUCHER", "LEDGER"})
+    if unknown_tm:
+        errors.append(f"TALLYMESSAGE has unknown children: {unknown_tm}")
+    voucher_count = tm_children.count("VOUCHER")
+    ledger_count = tm_children.count("LEDGER")
+    if (voucher_count, ledger_count) not in ((1, 0), (0, 1)):
+        errors.append(
+            "TALLYMESSAGE must contain exactly one of VOUCHER or LEDGER, "
+            f"got {voucher_count} VOUCHER and {ledger_count} LEDGER"
+        )
+    if errors:
         return False, errors
 
     voucher = tm.find("VOUCHER")
     ledger = tm.find("LEDGER")
     if ledger is not None:
         return _validate_ledger_strict(tm, ledger, g, errors)
-    if voucher is None:
-        errors.append("TALLYMESSAGE must contain VOUCHER or LEDGER")
-        return False, errors
     return _validate_voucher_strict(voucher, g, known_ledgers, allowed, errors)
+
+
+def _check_children_exact(parent, allowed_tags, where, errors, required=frozenset(),
+                            repeatable=frozenset()):
+    """Reject unknown children and duplicate children of an element.
+
+    ``allowed_tags`` is the full set of permitted child tags. Every
+    allowed tag may appear at most once, EXCEPT tags in ``repeatable``
+    (e.g. ALLLEDGERENTRIES.LIST — a voucher legitimately has 2+ entries).
+    Tags in ``required`` must appear exactly once. Appends to ``errors``;
+    returns nothing.
+    """
+    if parent is None:
+        errors.append(f"{where} is missing")
+        return
+    tags = [child.tag for child in parent]
+    unknown = sorted(set(tags) - set(allowed_tags))
+    if unknown:
+        errors.append(f"{where} has unknown children: {unknown}")
+    for tag in sorted(set(tags)):
+        if tag not in repeatable and tags.count(tag) > 1:
+            errors.append(f"{where} has duplicate <{tag}> (appears {tags.count(tag)} times)")
+    for tag in sorted(required):
+        if tags.count(tag) != 1:
+            errors.append(f"{where} must contain exactly one <{tag}>, got {tags.count(tag)}")
 
 
 def _validate_ledger_strict(tm, ledger, g, errors):
     """Strict checks for a LEDGER creation message."""
     if g("HEADER/ID") != "All Masters":
         errors.append("HEADER/ID must be 'All Masters' for a LEDGER message")
+    # LEDGER: only the NAME attribute; only PARENT + NAME.LIST children.
+    unknown_attrs = sorted(set(ledger.attrib) - {"NAME"})
+    if unknown_attrs:
+        errors.append(f"LEDGER has unknown attributes: {unknown_attrs}")
+    _check_children_exact(ledger, {"PARENT", "NAME.LIST"}, "LEDGER", errors,
+                          required={"PARENT", "NAME.LIST"})
     name = ledger.get("NAME")
     if not name or not name.strip():
         errors.append("LEDGER NAME attribute is missing or empty")
     parent = ledger.findtext("PARENT")
     if not parent or not parent.strip():
         errors.append("LEDGER PARENT is missing or empty")
+    name_list_el = ledger.find("NAME.LIST")
+    if name_list_el is not None:
+        _check_children_exact(name_list_el, {"NAME"}, "LEDGER NAME.LIST", errors, required={"NAME"})
     name_list = ledger.findtext("NAME.LIST/NAME")
     if name and name_list != name:
         errors.append("LEDGER NAME.LIST/NAME must equal the NAME attribute")
@@ -185,6 +268,16 @@ def _validate_voucher_strict(voucher, g, known_ledgers, allowed, errors):
     """Strict checks for a VOUCHER message."""
     if g("HEADER/ID") != "Vouchers":
         errors.append("HEADER/ID must be 'Vouchers' for a VOUCHER message")
+    # VOUCHER: only VCHTYPE/ACTION/OBJVIEW attributes; only DATE,
+    # VOUCHERTYPENAME, ALLLEDGERENTRIES.LIST children. DATE and
+    # VOUCHERTYPENAME exactly once each.
+    unknown_attrs = sorted(set(voucher.attrib) - {"VCHTYPE", "ACTION", "OBJVIEW"})
+    if unknown_attrs:
+        errors.append(f"VOUCHER has unknown attributes: {unknown_attrs}")
+    _check_children_exact(
+        voucher, {"DATE", "VOUCHERTYPENAME", "ALLLEDGERENTRIES.LIST"},
+        "VOUCHER", errors, required={"DATE", "VOUCHERTYPENAME"},
+        repeatable={"ALLLEDGERENTRIES.LIST"})
     vchtype = voucher.get("VCHTYPE")
     if not vchtype:
         errors.append("VOUCHER VCHTYPE attribute is missing")
@@ -214,6 +307,17 @@ def _validate_voucher_strict(voucher, g, known_ledgers, allowed, errors):
     has_cr = False
     for i, entry in enumerate(entries):
         where = f"entry {i + 1}"
+        # Entry: only LEDGERNAME/ISDEEMEDPOSITIVE/AMOUNT children, each
+        # exactly once, no attributes. Duplicates are rejected — findtext
+        # would otherwise silently return the first.
+        n_errors_before = len(errors)
+        if entry.attrib:
+            errors.append(f"{where}: ALLLEDGERENTRIES.LIST has unknown attributes: {sorted(entry.attrib)}")
+        _check_children_exact(
+            entry, {"LEDGERNAME", "ISDEEMEDPOSITIVE", "AMOUNT"}, where, errors,
+            required={"LEDGERNAME", "ISDEEMEDPOSITIVE", "AMOUNT"})
+        if len(errors) > n_errors_before:
+            continue
         ledger_name = (entry.findtext("LEDGERNAME") or "")
         _check_ledger_name(ledger_name, known_ledgers, errors, where)
         deemed = (entry.findtext("ISDEEMEDPOSITIVE") or "").strip()
@@ -223,7 +327,9 @@ def _validate_voucher_strict(voucher, g, known_ledgers, allowed, errors):
         amount_text = (entry.findtext("AMOUNT") or "")
         # XML AMOUNT is signed (Dr negative, Cr positive). Parse the signed
         # form strictly: optional leading '-', then the strict decimal.
-        signed = amount_text.strip()
+        # Whitespace check compares the RAW text to its stripped form —
+        # comparing stripped-to-stripped (the old bug) never detects it.
+        signed = amount_text
         if not signed or signed != amount_text.strip():
             errors.append(f"{where}: AMOUNT is missing or has surrounding whitespace")
             continue

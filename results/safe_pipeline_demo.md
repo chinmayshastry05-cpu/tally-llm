@@ -18,7 +18,7 @@ Branch: `tally-safe-pipeline`. Results file: `results/safe_pipeline_demo.json`.
 ## Exact commands (run from the repo root)
 
 ```bash
-# Full test suite (87 tests, incl. 62 fresh strict/pipeline tests)
+# Full test suite (127 tests, incl. 62 strict/pipeline + 40 review-fix tests)
 python3 -m unittest discover -s tests -v
 
 # Demo: three fixture flows + inference status (writes safe_pipeline_demo.json)

@@ -71,10 +71,34 @@ class TestGuiApiErrors(unittest.TestCase):
         self.assertIn("error", json.loads(body))
 
     def test_valid_xml_still_validates(self):
+        # New shape: strict verdict + nested legacy checks (research only).
         xml = "<ENVELOPE><HEADER><TALLYREQUEST>Import</TALLYREQUEST></HEADER></ENVELOPE>"
         code, body = _post(self.port, "/api/validate", json.dumps({"xml": xml}).encode())
         self.assertEqual(code, 200)
-        self.assertIn("wellformed", json.loads(body))
+        payload = json.loads(body)
+        self.assertIn("strict_ok", payload)
+        self.assertIn("strict_errors", payload)
+        self.assertIn("wellformed", payload["legacy"])
+        self.assertEqual(payload["legacy"]["wellformed"], 1)
+        # This envelope has no BODY: strict fails, legacy wellformed passes.
+        # Strict is the verdict, not legacy.
+        self.assertFalse(payload["strict_ok"])
+
+    def test_non_list_known_ledgers_400(self):
+        xml = "<ENVELOPE></ENVELOPE>"
+        code, body = _post(
+            self.port, "/api/validate",
+            json.dumps({"xml": xml, "known_ledgers": "not a list"}).encode())
+        self.assertEqual(code, 400)
+        self.assertIn("error", json.loads(body))
+
+    def test_non_string_known_ledger_400(self):
+        xml = "<ENVELOPE></ENVELOPE>"
+        code, body = _post(
+            self.port, "/api/validate",
+            json.dumps({"xml": xml, "known_ledgers": ["City Bank", 42]}).encode())
+        self.assertEqual(code, 400)
+        self.assertIn("error", json.loads(body))
 
     def test_page_shows_server_errors_and_no_enable_generation_claim(self):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/", timeout=5) as r:

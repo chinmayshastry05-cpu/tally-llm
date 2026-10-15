@@ -1,4 +1,9 @@
-"""Deterministic receipt/payment/journal pipeline (production path).
+"""Deterministic receipt/payment/journal pipeline (prototype acceptance path).
+
+NOT production-safe: the strict gate checks structure, dates, money,
+balance, and ledger presence — it does NOT verify accounting semantics
+(Receipt/Payment need actual ledger-role metadata, not just names) or
+Tally import. A balanced transaction with wrong ledger roles is NOT safe.
 
 Flow:
     JSON intent (model output, validated) -> deterministic XML builder

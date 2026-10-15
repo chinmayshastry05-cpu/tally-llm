@@ -9,10 +9,11 @@ catalogue, data types, or company-specific masters. Returns 1/0 per check.
 KNOWN HOLE (kept for backwards compatibility — GUI/samples use this):
 ``check()`` accepts impossible dates (e.g. 20261399 passes: the date is
 only an 8-digit regex), uses float money, and does not verify ledger
-presence or voucher-type allowlists. For the PRODUCTION gate, use
-``tally_xml.strict.validate_strict`` (real calendar dates, Decimal
-money, caller-provided known ledgers, fail-closed). Do not use
-``check()`` to approve a transaction for import.
+presence or voucher-type allowlists. For the PROTOTYPE ACCEPTANCE gate,
+use ``tally_xml.strict.validate_strict`` (real calendar dates, Decimal
+money, caller-provided known ledgers, fail-closed). ``check()`` is
+research only — never the acceptance verdict or download gate. Do not
+use ``check()`` to approve a transaction for import.
 """
 import re,xml.etree.ElementTree as ET
 def check(x,gold=None):
