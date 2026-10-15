@@ -1,0 +1,103 @@
+{
+ "flows": [
+  {
+   "name": "receipt",
+   "intent": {
+    "voucher_type": "Receipt",
+    "date": "2025-07-21",
+    "entries": [
+     {
+      "ledger": "City Bank",
+      "side": "Dr",
+      "amount": "5000.00"
+     },
+     {
+      "ledger": "Acme Traders",
+      "side": "Cr",
+      "amount": "5000.00"
+     }
+    ]
+   },
+   "pipeline_ok": true,
+   "pipeline_errors": [],
+   "xml": "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER><BODY><DESC /><DATA><TALLYMESSAGE><VOUCHER VCHTYPE=\"Receipt\" ACTION=\"Create\" OBJVIEW=\"Accounting Voucher View\"><DATE>20250721</DATE><VOUCHERTYPENAME>Receipt</VOUCHERTYPENAME><ALLLEDGERENTRIES.LIST><LEDGERNAME>City Bank</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-5000.00</AMOUNT></ALLLEDGERENTRIES.LIST><ALLLEDGERENTRIES.LIST><LEDGERNAME>Acme Traders</LEDGERNAME><ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><AMOUNT>5000.00</AMOUNT></ALLLEDGERENTRIES.LIST></VOUCHER></TALLYMESSAGE></DATA></BODY></ENVELOPE>",
+   "strict_roundtrip_ok": true,
+   "strict_roundtrip_errors": []
+  },
+  {
+   "name": "payment",
+   "intent": {
+    "voucher_type": "Payment",
+    "date": "2025-08-02",
+    "entries": [
+     {
+      "ledger": "Zenith Supplies",
+      "side": "Dr",
+      "amount": "1200.50"
+     },
+     {
+      "ledger": "Harbor Bank",
+      "side": "Cr",
+      "amount": "1200.50"
+     }
+    ]
+   },
+   "pipeline_ok": true,
+   "pipeline_errors": [],
+   "xml": "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER><BODY><DESC /><DATA><TALLYMESSAGE><VOUCHER VCHTYPE=\"Payment\" ACTION=\"Create\" OBJVIEW=\"Accounting Voucher View\"><DATE>20250802</DATE><VOUCHERTYPENAME>Payment</VOUCHERTYPENAME><ALLLEDGERENTRIES.LIST><LEDGERNAME>Zenith Supplies</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-1200.50</AMOUNT></ALLLEDGERENTRIES.LIST><ALLLEDGERENTRIES.LIST><LEDGERNAME>Harbor Bank</LEDGERNAME><ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><AMOUNT>1200.50</AMOUNT></ALLLEDGERENTRIES.LIST></VOUCHER></TALLYMESSAGE></DATA></BODY></ENVELOPE>",
+   "strict_roundtrip_ok": true,
+   "strict_roundtrip_errors": []
+  },
+  {
+   "name": "journal",
+   "intent": {
+    "voucher_type": "Journal",
+    "date": "2024-02-29",
+    "entries": [
+     {
+      "ledger": "Maple Stores",
+      "side": "Dr",
+      "amount": "750.00"
+     },
+     {
+      "ledger": "Northwind Traders",
+      "side": "Cr",
+      "amount": "750.00"
+     }
+    ]
+   },
+   "pipeline_ok": true,
+   "pipeline_errors": [],
+   "xml": "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER><BODY><DESC /><DATA><TALLYMESSAGE><VOUCHER VCHTYPE=\"Journal\" ACTION=\"Create\" OBJVIEW=\"Accounting Voucher View\"><DATE>20240229</DATE><VOUCHERTYPENAME>Journal</VOUCHERTYPENAME><ALLLEDGERENTRIES.LIST><LEDGERNAME>Maple Stores</LEDGERNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-750.00</AMOUNT></ALLLEDGERENTRIES.LIST><ALLLEDGERENTRIES.LIST><LEDGERNAME>Northwind Traders</LEDGERNAME><ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><AMOUNT>750.00</AMOUNT></ALLLEDGERENTRIES.LIST></VOUCHER></TALLYMESSAGE></DATA></BODY></ENVELOPE>",
+   "strict_roundtrip_ok": true,
+   "strict_roundtrip_errors": []
+  }
+ ],
+ "adapter_inference_ran": false,
+ "adapter_inference_status": {
+  "adapter_present": false,
+  "adapter_dir": "/home/hatch/workspace/tally-llm/models/adapter",
+  "dependencies": {
+   "available": {
+    "transformers": false,
+    "torch": false,
+    "peft": false,
+    "safetensors": false
+   },
+   "missing": [
+    "transformers",
+    "torch",
+    "peft",
+    "safetensors"
+   ]
+  },
+  "tokenizer_present": false,
+  "inference_ready": false,
+  "blockers": [
+   "no complete adapter (adapter_config.json + non-empty adapter_model.safetensors)",
+   "missing ML dependencies: transformers, torch, peft, safetensors",
+   "tokenizer files missing from adapter dir"
+  ],
+  "generation_enabled": false
+ }
+}

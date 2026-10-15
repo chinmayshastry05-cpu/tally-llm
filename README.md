@@ -9,6 +9,12 @@ artifacts are missing (see below). The GUI runs, validates XML, and refuses
 generation until an adapter exists — it does not claim to be a working
 accounting assistant merely because the GUI runs.
 
+**Branch `tally-safe-pipeline` (new):** strict validator + deterministic
+JSON-intent → XML pipeline for receipt/payment/journal. The deterministic
+pipeline is tested with fixture intents (not model outputs). Adapter-backed
+NL inference is NOT wired to a working model and has NOT run — see
+"Adapter / JSON mismatch" below. Live Tally import: NOT TESTED.
+
 ## What is in this repo
 
 | Path | Contents |
@@ -19,11 +25,14 @@ accounting assistant merely because the GUI runs.
 | `data/xml_train.json` | Phase 2 training: 700 synthetic instruction→XML pairs |
 | `data/xml_test.json` | Phase 2 test: 60 synthetic pairs with gold records |
 | `data/model_generated_samples.json` | The only 2 surviving fine-tuned model-generated XML samples |
-| `tally_xml/validate.py` | Structural validator (subset — NOT a complete Tally schema validator): wellformed / schema / balanced / fields |
+| `tally_xml/validate.py` | Structural validator (subset — NOT a complete Tally schema validator): wellformed / schema / balanced / fields. Has a known hole (accepts impossible dates like 20261399) — see `strict.py` for the production gate. |
+| `tally_xml/strict.py` | STRICT production validator + JSON intent validation: real calendar dates, Decimal money, caller-provided known ledgers, voucher-type allowlist, fail-closed. |
+| `tally_xml/pipeline.py` | Deterministic JSON-intent → XML builder (ET-escaped) + strict round-trip gate. The LLM never does arithmetic or free-form XML here. |
+| `tally_xml/inference.py` | Adapter inference wiring (fail-closed, UNVERIFIED): adapter/deps/tokenizer checks + JSON-intent parsing. Fails closed today (no adapter, no ML deps). |
 | `tally_xml/gui.py` | Local GUI (stdlib only): validate, samples, fail-closed generate |
 | `tally_xml/generate.py` | Generation entry point — refuses without a trained adapter |
 | `results/` | Benchmark + eval write-ups with provenance and caveats |
-| `tests/` | Validator, fail-closed, and fixture tests (stdlib `unittest`) |
+| `tests/` | Validator, fail-closed, strict/pipeline, and fixture tests (stdlib `unittest`) |
 
 ## Honest caveats (read before using)
 
@@ -62,6 +71,40 @@ python3 -m unittest discover -s tests -v
 # Validate an XML file from the shell
 python3 -c "import sys,json; from tally_xml.validate import check; print(check(open(sys.argv[1]).read()))" sample.xml
 ```
+
+## Adapter / JSON mismatch (read before trusting any "JSON" claim)
+
+The Phase 2 adapter was trained to emit **XML**, not JSON intent:
+`data/xml_train.json` (700 pairs) maps natural-language instruction to a
+full TallyPrime XML ENVELOPE. No JSON-intent training data, JSON schema,
+or JSON-output eval exists in this repo. A prompt change cannot prove
+JSON capability — the adapter's weights are tuned for XML. Prompting it
+for JSON may yield XML, malformed JSON, or JSON with wrong values.
+
+Architecture:
+- **Production path** (this branch): JSON intent ONLY → deterministic
+  validation → deterministic XML builder. Currently DISABLED for
+  model-backed use: no JSON-capable adapter exists. Fixture intents test
+  the deterministic code; fixture mocks are NOT a model test.
+- **Legacy/research path:** XML-emitting adapter → strict validator
+  (`tally_xml.strict.validate_strict`). Also DISABLED (no adapter,
+  inference unwired). If a retrained adapter appears, evaluate it as
+  research only — never as the production path.
+
+## Safe pipeline (branch `tally-safe-pipeline`)
+
+Deterministic receipt/payment/journal flows with fixture intents:
+
+```bash
+python3 -m unittest discover -s tests -v
+# 87 tests, incl. 62 fresh strict/pipeline tests (invalid dates, missing
+# fields, unknown ledgers, malformed model output, bad money, unbalanced
+# journals, escaping/injection-like ledger text). Developer-written, not
+# accountant-reviewed, not production proof.
+```
+
+See `results/safe_pipeline_demo.md` for the demo (3 flows pass pipeline +
+strict round-trip; adapter-backed inference did NOT run).
 
 ## Enabling generation (adapter setup)
 
