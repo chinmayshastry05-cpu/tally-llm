@@ -1,3 +1,11 @@
+"""Structural validator for TallyPrime XML import messages.
+
+Checks a structural SUBSET of the Tally schema — well-formed XML, the
+expected ENVELOPE/voucher-or-ledger shape, balanced debits/credits, and
+field consistency against a gold record when one is supplied. This is NOT a
+complete Tally schema validator: it does not check the full Tally field
+catalogue, data types, or company-specific masters. Returns 1/0 per check.
+"""
 import re,xml.etree.ElementTree as ET
 def check(x,gold=None):
     r={'wellformed':0,'schema':0,'balanced':0,'fields':0}

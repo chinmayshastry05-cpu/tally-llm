@@ -19,7 +19,7 @@ accounting assistant merely because the GUI runs.
 | `data/xml_train.json` | Phase 2 training: 700 synthetic instruction→XML pairs |
 | `data/xml_test.json` | Phase 2 test: 60 synthetic pairs with gold records |
 | `data/model_generated_samples.json` | The only 2 surviving fine-tuned model-generated XML samples |
-| `tally_xml/validate.py` | Structural validator: wellformed / schema / balanced / fields |
+| `tally_xml/validate.py` | Structural validator (subset — NOT a complete Tally schema validator): wellformed / schema / balanced / fields |
 | `tally_xml/gui.py` | Local GUI (stdlib only): validate, samples, fail-closed generate |
 | `tally_xml/generate.py` | Generation entry point — refuses without a trained adapter |
 | `results/` | Benchmark + eval write-ups with provenance and caveats |
@@ -65,16 +65,30 @@ python3 -c "import sys,json; from tally_xml.validate import check; print(check(o
 
 ## Enabling generation (adapter setup)
 
-Generation is **fail-closed**: with no adapter, the GUI and
-`tally_xml.generate.generate_voucher()` refuse, and no template XML is
-produced in its place. To enable it, place a fine-tuned LoRA adapter at:
+Generation is **fail-closed** and stays disabled in this build. Restoring
+adapter files alone does **not** enable generation, because model inference
+is not wired in: even with a complete adapter,
+`tally_xml.generate.generate_voucher()` refuses with `NotImplementedError`
+until inference is actually implemented and verified. Never treat "adapter
+files present" as "generation works".
+
+Adapter states (see `adapter_status()`):
+
+| State | `adapter_present` | `generation_enabled` |
+|---|---|---|
+| No adapter files | false | false |
+| Only `adapter_config.json` (weights missing/empty) | false — not a usable adapter | false |
+| Config + real weights, inference unwired | true | false — inference not implemented |
+
+To complete the adapter files, place a fine-tuned LoRA adapter at:
 
 ```
 models/adapter/adapter_config.json
 models/adapter/adapter_model.safetensors
 ```
 
-(or set `TALLY_ADAPTER_DIR`). Model inference itself is not wired into this
-build — see `results/phase2_synthetic_eval.md` for what the executed run
-produced. Never import generated XML into production books without
-independent review.
+(or set `TALLY_ADAPTER_DIR`). The weights file must be non-empty; a config
+file on its own does not count as an adapter. Model inference itself is not
+wired into this build — see `results/phase2_synthetic_eval.md` for what the
+executed run produced. Never import generated XML into production books
+without independent review.
